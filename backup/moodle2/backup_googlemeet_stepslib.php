@@ -41,7 +41,6 @@ class backup_googlemeet_activity_structure_step extends backup_activity_structur
             'name',
             'originalname',
             'url',
-            'creatoremail',
             'intro',
             'introformat',
             'lastsync',
@@ -56,14 +55,15 @@ class backup_googlemeet_activity_structure_step extends backup_activity_structur
             'eventenddate',
             'notify',
             'minutesbefore',
-            'timemodified'
+            'timemodified',
+            'attendanceenabled', 'attendancefrom', 'attendancethreshold', 'completionattendance', 'lategrace', 'authrequired'
         ]);
 
         $events = new backup_nested_element('events');
         $event = new backup_nested_element('event', ['id'], [
             'eventdate',
-            'duration',
-            'timemodified'
+            'duration', 'cancelled', 'timemodified',
+            ...($userinfo ? ['snapshotat', 'syncstatus', 'lastsync', 'syncerror'] : [])
         ]);
 
         $recordings = new backup_nested_element('recordings');
@@ -89,7 +89,52 @@ class backup_googlemeet_activity_structure_step extends backup_activity_structur
 
         $event->set_source_table('googlemeet_events', ['googlemeetid' => backup::VAR_PARENTID]);
 
-        $recording->set_source_table('googlemeet_recordings', ['googlemeetid' => backup::VAR_PARENTID]);
+        if ($userinfo) {
+            $recording->set_source_table('googlemeet_recordings', ['googlemeetid' => backup::VAR_PARENTID]);
+        }
+
+        // Flat containers are ordered so restore can remap every parent before its children.
+        if ($userinfo) {
+            $definitions = [
+                'conference' => ['resource', 'space', 'timestart', 'timeend'],
+                'participant' => ['conferenceid', 'resource', 'googlesub', 'displayname', 'userid',
+                    'mappingstatus', 'mappedby', 'mappedat', 'mappingreason'],
+                'session' => ['participantid', 'resource', 'timestart', 'timeend'],
+                'eventconf' => ['eventid', 'conferenceid'],
+                'roster' => ['eventid', 'userid'],
+                'audit' => ['eventid', 'participantid', 'userid', 'subjectid', 'previoususerid', 'action', 'reason', 'timecreated'],
+            ];
+            foreach ($definitions as $table => $fields) {
+                $container = new backup_nested_element($table . 's');
+                $element = new backup_nested_element($table, ['id'], $fields);
+                $googlemeet->add_child($container);
+                $container->add_child($element);
+                if (in_array($table, ['conference', 'audit'])) {
+                    $element->set_source_table('googlemeet_' . $table, ['googlemeetid' => backup::VAR_PARENTID]);
+                } else if ($table === 'participant') {
+                    $element->set_source_sql("SELECT p.* FROM {googlemeet_participant} p
+                        JOIN {googlemeet_conference} c ON c.id = p.conferenceid WHERE c.googlemeetid = ?",
+                        [backup::VAR_ACTIVITYID]);
+                } else if ($table === 'session') {
+                    $element->set_source_sql("SELECT s.* FROM {googlemeet_session} s
+                        JOIN {googlemeet_participant} p ON p.id = s.participantid
+                        JOIN {googlemeet_conference} c ON c.id = p.conferenceid WHERE c.googlemeetid = ?",
+                        [backup::VAR_ACTIVITYID]);
+                } else {
+                    $element->set_source_sql("SELECT t.* FROM {googlemeet_" . $table . "} t
+                        JOIN {googlemeet_events} e ON e.id = t.eventid WHERE e.googlemeetid = ?",
+                        [backup::VAR_ACTIVITYID]);
+                }
+                if (in_array('userid', $fields)) {
+                    $element->annotate_ids('user', 'userid');
+                }
+                foreach (['mappedby', 'subjectid', 'previoususerid'] as $userfield) {
+                    if (in_array($userfield, $fields)) {
+                        $element->annotate_ids('user', $userfield);
+                    }
+                }
+            }
+        }
 
         // Define id annotations.
 

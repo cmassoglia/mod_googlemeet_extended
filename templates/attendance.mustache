@@ -1,0 +1,35 @@
+{{! Attendance is server-rendered; all record values are escaped. }}
+<div class="googlemeet-attendance">
+<details class="mb-4" open><summary>{{#str}}attendancecourse, googlemeet{{/str}}</summary>
+<div class="table-responsive"><table class="table"><thead><tr><th>{{#str}}attendancestudent, googlemeet{{/str}}</th><th>{{#str}}attendanceclasses, googlemeet{{/str}}</th><th>{{#str}}attendancesummaryattended, googlemeet{{/str}}</th><th>{{#str}}attendancesummaryabsent, googlemeet{{/str}}</th><th>{{#str}}attendancesummarypending, googlemeet{{/str}}</th></tr></thead><tbody>
+{{#students}}<tr><th scope="row"><a href="{{studenturl}}">{{name}}</a></th><td>{{classes}}</td><td>{{attended}}</td><td>{{absent}}</td><td>{{pending}}</td></tr>{{/students}}
+</tbody></table></div></details>
+{{#sections}}
+<section class="mb-4">
+<h3>{{name}}</h3>
+{{^identitylinked}}<p class="alert alert-info">{{#str}}attendancenoaccount, googlemeet{{/str}}</p>{{/identitylinked}}
+<a class="btn btn-outline-primary mb-2" href="{{identityurl}}">{{#str}}attendanceidentity, googlemeet{{/str}}</a>
+{{#manage}}
+<a class="btn btn-outline-primary mb-2" href="{{organizerurl}}">{{#str}}attendanceorganizer, googlemeet{{/str}}</a>
+{{#authrequired}}<p class="alert alert-warning">{{#str}}attendanceauthrequired, googlemeet{{/str}}</p>{{/authrequired}}
+<form method="post" action="attendance.php"><input type="hidden" name="id" value="{{id}}"><input type="hidden" name="sesskey" value="{{sesskey}}"><button class="btn btn-secondary mb-3" name="action" value="sync">{{#str}}attendancesync, googlemeet{{/str}}</button></form>
+{{/manage}}
+{{#events}}
+<article class="card mb-3"><div class="card-body">
+<h4><a href="{{eventurl}}">{{date}}</a></h4><p>{{syncstatus}}<br><small>{{#str}}attendancelastsync, googlemeet{{/str}}: {{lastsync}}</small></p>
+{{#syncerror}}<p class="alert alert-warning">{{syncerror}}</p>{{/syncerror}}
+{{#cancelled}}<p class="alert alert-secondary">{{#str}}attendancestatuscancelled, googlemeet{{/str}}</p>{{/cancelled}}
+{{#summary}}<span class="badge badge-light mr-2">{{label}}: {{value}}</span> {{/summary}}
+<div class="table-responsive"><table class="table"><caption class="sr-only">{{date}}</caption><thead><tr><th scope="col">{{#str}}attendancestudent, googlemeet{{/str}}</th><th scope="col">{{#str}}attendanceminutes, googlemeet{{/str}}</th><th scope="col">{{#str}}attendancepercentage, googlemeet{{/str}}</th><th scope="col">{{#str}}attendancestatus, googlemeet{{/str}}</th><th scope="col">{{#str}}attendanceintervals, googlemeet{{/str}}</th></tr></thead><tbody>
+{{#rows}}<tr><th scope="row"><a href="{{studenturl}}">{{name}}</a></th><td>{{minutes}}<br><small>{{#str}}attendancetotalminutes, googlemeet{{/str}}: {{totalminutes}}</small></td><td>{{percentage}}%</td><td>{{status}} {{#late}}<span class="badge badge-warning">{{#str}}attendancelate, googlemeet{{/str}}</span>{{/late}} {{#early}}<span class="badge badge-secondary">{{#str}}attendanceearly, googlemeet{{/str}}</span>{{/early}}</td><td><details><summary>{{#str}}attendanceintervals, googlemeet{{/str}} ({{sessions}})</summary><p>{{first}} – {{last}}</p><ul>{{#intervals}}<li>{{start}} – {{end}}</li>{{/intervals}}</ul></details></td></tr>{{/rows}}
+{{^rows}}<tr><td colspan="5">{{#str}}attendancenodata, googlemeet{{/str}}</td></tr>{{/rows}}
+</tbody></table></div>
+{{#participants}}<details class="mb-2"><summary>{{name}} · {{mapping}}</summary><p>{{subject}}</p>
+{{#manage}}<form method="post" action="attendance.php"><input type="hidden" name="id" value="{{cmid}}"><input type="hidden" name="eventid" value="{{eventid}}"><input type="hidden" name="participantid" value="{{id}}"><input type="hidden" name="sesskey" value="{{sesskey}}"><label>{{#str}}attendancemap, googlemeet{{/str}} <select class="custom-select" name="mappeduser"><option value="0">{{#str}}attendanceexternal, googlemeet{{/str}}</option>{{#options}}<option value="{{id}}" {{#selected}}selected{{/selected}}>{{name}}</option>{{/options}}</select></label> <label>{{#str}}attendancereason, googlemeet{{/str}} <input class="form-control" name="reason" required maxlength="1000"></label> <button class="btn btn-secondary" name="action" value="map">{{#str}}savechanges{{/str}}</button></form>{{/manage}}
+</details>{{/participants}}
+{{#manage}}{{^cancelled}}<details><summary>{{#str}}attendancecancel, googlemeet{{/str}}</summary><form method="post" action="attendance.php"><input type="hidden" name="id" value="{{id}}"><input type="hidden" name="eventid" value="{{eventid}}"><input type="hidden" name="sesskey" value="{{sesskey}}"><label>{{#str}}attendancereason, googlemeet{{/str}} <input class="form-control" name="reason" required maxlength="1000"></label> <button class="btn btn-secondary" name="action" value="cancel">{{#str}}attendancecancel, googlemeet{{/str}}</button></form></details>{{/cancelled}}{{/manage}}
+</div></article>
+{{/events}}{{^events}}<p>{{#str}}attendancenodata, googlemeet{{/str}}</p>{{/events}}
+</section>
+{{/sections}}{{^sections}}<p>{{#str}}attendancenodata, googlemeet{{/str}}</p>{{/sections}}
+</div>

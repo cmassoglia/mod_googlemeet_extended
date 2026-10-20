@@ -25,6 +25,41 @@
 use mod_googlemeet\client;
 
 /**
+ * Normalise attendance settings without accepting an organiser identity from a form.
+ *
+ * @param stdClass $record New activity settings.
+ * @param stdClass|null $previous Saved settings when updating.
+ */
+function googlemeet_prepare_attendance_settings(stdClass $record, ?stdClass $previous = null): void {
+    global $DB;
+    $record->attendanceenabled = empty($record->attendanceenabled) ? 0 : 1;
+    $record->attendancethreshold = (int)($record->attendancethreshold ?? $previous->attendancethreshold ?? 75);
+    $record->completionattendance = (int)($record->completionattendance ?? $previous->completionattendance ?? 0);
+    $record->lategrace = (int)($record->lategrace ?? $previous->lategrace ?? 600);
+    if ($record->attendancethreshold < 1 || $record->attendancethreshold > 100 ||
+            $record->completionattendance < 0 || $record->completionattendance > 100 || $record->lategrace < 0) {
+        throw new invalid_parameter_exception('Invalid attendance thresholds');
+    }
+    $record->attendancefrom = (int)($previous->attendancefrom ?? 0);
+    if ($record->attendanceenabled && empty($previous->attendanceenabled) && !$record->attendancefrom) {
+        $record->attendancefrom = time();
+    }
+    foreach (['organizerid' => 0, 'attendanceissuerid' => 0, 'organizersub' => '', 'authrequired' => 1] as $field => $default) {
+        $record->$field = $previous->$field ?? $default;
+    }
+    if ($previous && isset($record->url) && $record->url !== $previous->url) {
+        if (!empty($previous->id) && !empty($previous->attendancefrom) && $DB->record_exists_select(
+                'googlemeet_events', 'googlemeetid = :id AND eventdate >= :activation AND eventdate <= :now',
+                ['id' => $previous->id, 'activation' => $previous->attendancefrom, 'now' => time()])) {
+            throw new moodle_exception('attendancehistorylocked', 'googlemeet');
+        }
+        $record->organizerid = 0;
+        $record->organizersub = '';
+        $record->authrequired = 1;
+    }
+}
+
+/**
  * Return if the plugin supports $feature.
  *
  * @param string $feature Constant representing the feature.
@@ -41,6 +76,7 @@ function googlemeet_supports($feature) {
         case FEATURE_MOD_INTRO:
             return true;
         case FEATURE_COMPLETION_TRACKS_VIEWS:
+        case FEATURE_COMPLETION_HAS_RULES:
             return true;
         case FEATURE_GRADE_HAS_GRADE:
             return false;
@@ -70,6 +106,7 @@ function googlemeet_add_instance($googlemeet, $mform = null) {
     global $DB, $CFG;
     require_once($CFG->dirroot . '/mod/googlemeet/locallib.php');
 
+    googlemeet_prepare_attendance_settings($googlemeet);
     $client = new client();
 
     // Se não esta logado na conta do Google.
@@ -124,6 +161,8 @@ function googlemeet_update_instance($googlemeet, $mform = null) {
     require_once($CFG->dirroot . '/mod/googlemeet/locallib.php');
 
     $googlemeet->id = $googlemeet->instance;
+    $previous = $DB->get_record('googlemeet', ['id' => $googlemeet->id], '*', MUST_EXIST);
+    googlemeet_prepare_attendance_settings($googlemeet, $previous);
 
     if (isset($googlemeet->addmultiply)) {
         if (isset($googlemeet->days)) {
@@ -154,6 +193,7 @@ function googlemeet_update_instance($googlemeet, $mform = null) {
 
     googlemeet_set_events($googlemeet, $events);
 
+    \mod_googlemeet\attendance\service::recalculate($googlemeet->id);
     return $googlemeetupdated;
 }
 
@@ -172,6 +212,7 @@ function googlemeet_delete_instance($id) {
         return false;
     }
 
+    \mod_googlemeet\attendance\lifecycle::delete_activity($id);
     googlemeet_delete_events($id);
 
     $DB->delete_records('googlemeet_recordings', ['googlemeetid' => $id]);
@@ -198,13 +239,14 @@ function googlemeet_get_coursemodule_info($coursemodule) {
     if (!$googlemeet = $DB->get_record(
         'googlemeet',
         ['id' => $coursemodule->instance],
-        'id, name, url, intro, introformat'
+        'id, name, url, intro, introformat, completionattendance'
     )) {
         return null;
     }
 
     $info = new cached_cm_info();
     $info->name = $googlemeet->name;
+    $info->customdata['customcompletionrules']['completionattendance'] = (int)$googlemeet->completionattendance;
 
     if ($coursemodule->showdescription) {
         // Convert intro to html. Do not filter cached version, filters run at display time.
@@ -366,4 +408,39 @@ function sync_recordings($googlemeetid, $files) {
     }
 
     return googlemeet_list_recordings(['googlemeetid' => $googlemeetid]);
+}
+
+/** Add an explicit attendance-history reset option. */
+function googlemeet_reset_course_form_definition(&$mform) {
+    $mform->addElement('header', 'googlemeetheader', get_string('modulename', 'googlemeet'));
+    $mform->addElement('advcheckbox', 'reset_googlemeet_attendance', get_string('resetattendance', 'googlemeet'));
+}
+
+/** Preserve histories unless the reset option is selected. */
+function googlemeet_reset_course_form_defaults($course) {
+    return ['reset_googlemeet_attendance' => 0];
+}
+
+/** Reset requested attendance data and shift only future, unsnapshotted occurrences. */
+function googlemeet_reset_userdata($data) {
+    global $DB;
+    $status = [];
+    foreach ($DB->get_records('googlemeet', ['course' => $data->courseid]) as $activity) {
+        if (!empty($data->reset_googlemeet_attendance)) {
+            \mod_googlemeet\attendance\lifecycle::reset_activity($activity->id);
+        }
+        if (!empty($data->timeshift)) {
+            foreach ($DB->get_records('googlemeet_events', ['googlemeetid' => $activity->id]) as $event) {
+                if ($event->eventdate > time() && empty($event->snapshotat)) {
+                    $event->eventdate += $data->timeshift;
+                    $DB->update_record('googlemeet_events', $event);
+                }
+            }
+        }
+    }
+    if (!empty($data->reset_googlemeet_attendance)) {
+        $status[] = ['component' => get_string('modulename', 'googlemeet'),
+            'item' => get_string('resetattendance', 'googlemeet'), 'error' => false];
+    }
+    return $status;
 }

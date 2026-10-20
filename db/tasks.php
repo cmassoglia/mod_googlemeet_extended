@@ -26,6 +26,15 @@ defined('MOODLE_INTERNAL') || die();
 
 $tasks = [
     [
+        'classname' => 'mod_googlemeet\task\attendance_dispatch',
+        'blocking' => 0,
+        'minute' => '*/5',
+        'hour' => '*',
+        'day' => '*',
+        'dayofweek' => '*',
+        'month' => '*'
+    ],
+    [
         'classname' => 'mod_googlemeet\task\notify_event',
         'blocking' => 0,
         'minute' => '*/5',

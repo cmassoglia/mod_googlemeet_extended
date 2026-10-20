@@ -95,6 +95,13 @@ if (has_capability('mod/googlemeet:editrecording', $context)) {
     }
 }
 
+if (!empty($googlemeet->attendanceenabled) &&
+        (has_capability('mod/googlemeet:viewattendance', $context) ||
+        has_capability('mod/googlemeet:viewownattendance', $context))) {
+    echo html_writer::link(new moodle_url('/mod/googlemeet/attendance.php', ['id' => $cm->id]),
+        get_string('attendance', 'googlemeet'), ['class' => 'btn btn-outline-primary ml-2']);
+}
+
 echo $OUTPUT->render_from_template('mod_googlemeet/upcomingevents', googlemeet_get_upcoming_events($googlemeet->id));
 
 googlemeet_print_recordings($googlemeet, $cm, $context);

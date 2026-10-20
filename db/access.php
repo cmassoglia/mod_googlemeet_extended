@@ -26,6 +26,22 @@
 defined('MOODLE_INTERNAL') || die();
 
 $capabilities = [
+    'mod/googlemeet:viewattendance' => [
+        'captype' => 'read',
+        'contextlevel' => CONTEXT_MODULE,
+        'archetypes' => ['manager' => CAP_ALLOW, 'editingteacher' => CAP_ALLOW, 'teacher' => CAP_ALLOW],
+    ],
+    'mod/googlemeet:viewownattendance' => [
+        'captype' => 'read',
+        'contextlevel' => CONTEXT_MODULE,
+        'archetypes' => ['manager' => CAP_ALLOW, 'editingteacher' => CAP_ALLOW,
+            'teacher' => CAP_ALLOW, 'student' => CAP_ALLOW],
+    ],
+    'mod/googlemeet:manageattendance' => [
+        'captype' => 'write',
+        'contextlevel' => CONTEXT_MODULE,
+        'archetypes' => ['manager' => CAP_ALLOW, 'editingteacher' => CAP_ALLOW],
+    ],
     'mod/googlemeet:view' => [
         'captype' => 'read',
         'contextlevel' => CONTEXT_MODULE,

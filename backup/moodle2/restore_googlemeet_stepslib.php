@@ -45,6 +45,12 @@ class restore_googlemeet_activity_structure_step extends restore_activity_struct
         $paths[] = new restore_path_element('googlemeet_recording',
             '/activity/googlemeet/recordings/recording');
 
+        if ($userinfo) {
+            foreach (['conference', 'participant', 'session', 'eventconf', 'roster', 'audit'] as $table) {
+                $paths[] = new restore_path_element('googlemeet_' . $table,
+                    '/activity/googlemeet/' . $table . 's/' . $table);
+            }
+        }
         return $this->prepare_activity_structure($paths);
     }
 
@@ -63,9 +69,16 @@ class restore_googlemeet_activity_structure_step extends restore_activity_struct
 
         // Any changes to the list of dates that needs to be rolled should be same during course restore and course reset.
         // See MDL-9367.
-        $data->eventdate = $this->apply_date_offset($data->eventdate);
-        $data->eventenddate = $this->apply_date_offset($data->eventenddate);
-        $data->timemodified = $this->apply_date_offset($data->timemodified);
+        if (!$this->get_setting_value('userinfo') && $data->eventdate > time()) {
+            $data->eventdate = $this->apply_date_offset($data->eventdate);
+            $data->eventenddate = $this->apply_date_offset($data->eventenddate);
+        }
+        // OAuth bindings and automatic import must always be explicitly reconnected.
+        $data->attendanceenabled = 0;
+        $data->organizerid = 0;
+        $data->organizersub = '';
+        $data->attendanceissuerid = 0;
+        $data->authrequired = 1;
 
         // Insert the googlemeet record.
         $newitemid = $DB->insert_record('googlemeet', $data);
@@ -86,8 +99,9 @@ class restore_googlemeet_activity_structure_step extends restore_activity_struct
         $oldid = $data->id;
 
         $data->googlemeetid = $this->get_new_parentid('googlemeet');
-        $data->eventdate = $this->apply_date_offset($data->eventdate);
-        $data->timemodified = $this->apply_date_offset($data->timemodified);
+        if (!$this->get_setting_value('userinfo') && $data->eventdate > time()) {
+            $data->eventdate = $this->apply_date_offset($data->eventdate);
+        }
 
         $newitemid = $DB->insert_record('googlemeet_events', $data);
         $this->set_mapping('googlemeet_event', $oldid, $newitemid);
@@ -106,10 +120,60 @@ class restore_googlemeet_activity_structure_step extends restore_activity_struct
         $oldid = $data->id;
 
         $data->googlemeetid = $this->get_new_parentid('googlemeet');
-        $data->timemodified = $this->apply_date_offset($data->timemodified);
 
         $newitemid = $DB->insert_record('googlemeet_recordings', $data);
         $this->set_mapping('googlemeet_recording', $oldid, $newitemid);
+    }
+
+    /** Restore an imported record, retaining its original timestamps. */
+    protected function restore_attendance_record(string $table, $data): void {
+        global $DB;
+        $data = (object)$data;
+        $oldid = $data->id;
+        unset($data->id);
+        if (in_array($table, ['conference', 'audit'])) {
+            $data->googlemeetid = $this->get_new_parentid('googlemeet');
+        }
+        foreach (['eventid' => 'event', 'conferenceid' => 'conference', 'participantid' => 'participant'] as $field => $parent) {
+            if (!empty($data->$field)) {
+                $data->$field = $this->get_mappingid('googlemeet_' . $parent, $data->$field, 0);
+            }
+        }
+        foreach (['userid', 'mappedby', 'subjectid', 'previoususerid'] as $field) {
+            if (isset($data->$field)) {
+                $data->$field = $this->get_mappingid('user', $data->$field, 0);
+            }
+        }
+        // A user missing from the destination must never retain a source-site Moodle ID.
+        if ($table === 'roster' && empty($data->userid)) {
+            return;
+        }
+        $newid = $DB->insert_record('googlemeet_' . $table, $data);
+        $this->set_mapping('googlemeet_' . $table, $oldid, $newid);
+    }
+
+    protected function process_googlemeet_conference($data) {
+        $this->restore_attendance_record('conference', $data);
+    }
+
+    protected function process_googlemeet_participant($data) {
+        $this->restore_attendance_record('participant', $data);
+    }
+
+    protected function process_googlemeet_session($data) {
+        $this->restore_attendance_record('session', $data);
+    }
+
+    protected function process_googlemeet_eventconf($data) {
+        $this->restore_attendance_record('eventconf', $data);
+    }
+
+    protected function process_googlemeet_roster($data) {
+        $this->restore_attendance_record('roster', $data);
+    }
+
+    protected function process_googlemeet_audit($data) {
+        $this->restore_attendance_record('audit', $data);
     }
 
     /**

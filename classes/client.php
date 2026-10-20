@@ -60,7 +60,7 @@ class client {
     public function __construct() {
         try {
             $this->issuer = \core\oauth2\api::get_issuer(get_config('googlemeet', 'issuerid'));
-        } catch (dml_missing_record_exception $e) {
+        } catch (\dml_missing_record_exception $e) {
             $this->enabled = false;
         }
 
@@ -68,6 +68,9 @@ class client {
             $this->enabled = false;
         }
 
+        if (!$this->enabled) {
+            return;
+        }
         $client = $this->get_user_oauth_client();
         if ($this->enabled && $client->get_login_url()->get_host() !== 'accounts.google.com') {
             throw new moodle_exception('invalidissuerid', 'googlemeet');
@@ -173,6 +176,9 @@ class client {
      * @return bool true when logged in.
      */
     public function check_login() {
+        if (!$this->enabled) {
+            return false;
+        }
         $client = $this->get_user_oauth_client();
         return $client->is_logged_in();
     }

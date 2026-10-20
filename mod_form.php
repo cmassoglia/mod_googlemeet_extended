@@ -232,6 +232,20 @@ class mod_googlemeet_mod_form extends moodleform_mod {
         $minutesbefore->setSelected($config->minutesbefore);
         $mform->addHelpButton('minutesbefore', 'minutesbefore', 'googlemeet');
 
+        $mform->addElement('header', 'attendanceheader', get_string('attendance', 'googlemeet'));
+        $mform->addElement('advcheckbox', 'attendanceenabled', get_string('attendanceenabled', 'googlemeet'));
+        $mform->setDefault('attendanceenabled', 0);
+        $mform->addElement('select', 'attendancethreshold', get_string('attendancethreshold', 'googlemeet'),
+            array_combine(range(1, 100), range(1, 100)));
+        $mform->setDefault('attendancethreshold', 75);
+        $mform->disabledIf('attendancethreshold', 'attendanceenabled', 'notchecked');
+        $mform->addElement('duration', 'lategrace', get_string('attendancelategrace', 'googlemeet'),
+            ['defaultunit' => MINSECS]);
+        $mform->setDefault('lategrace', 600);
+        $mform->disabledIf('lategrace', 'attendanceenabled', 'notchecked');
+        $mform->addElement('static', 'attendanceconnectionnotice', '',
+            get_string('attendanceconnectionnotice', 'googlemeet'));
+
         // Add standard elements.
         $this->standard_coursemodule_elements();
 
@@ -249,6 +263,11 @@ class mod_googlemeet_mod_form extends moodleform_mod {
     public function data_preprocessing(&$defaultvalues) {
         if ($this->current->instance) {
             $defaultvalues['days'] = json_decode($defaultvalues['days'], true);
+            $defaultvalues['completionattendanceenabled' . $this->get_suffix()] =
+                !empty($defaultvalues['completionattendance' . $this->get_suffix()]);
+            if (empty($defaultvalues['completionattendance' . $this->get_suffix()])) {
+                $defaultvalues['completionattendance' . $this->get_suffix()] = 80;
+            }
         }
     }
 
@@ -263,6 +282,16 @@ class mod_googlemeet_mod_form extends moodleform_mod {
         global $COURSE;
 
         $errors = parent::validation($data, $files);
+        $suffix = $this->get_suffix();
+        if (!empty($data['completionattendanceenabled' . $suffix]) &&
+                ((isset($data['attendanceenabled']) && empty($data['attendanceenabled'])) ||
+                ($data['completionattendance' . $suffix] ?? 0) < 1 ||
+                ($data['completionattendance' . $suffix] ?? 0) > 100)) {
+            $errors['completionattendancegroup' . $suffix] = get_string('attendanceinvalidcompletion', 'googlemeet');
+        }
+        if (($data['lategrace'] ?? 0) < 0) {
+            $errors['lategrace'] = get_string('err_numeric', 'form');
+        }
 
         $starttime = $data['starthour'] * HOURSECS + $data['startminute'] * MINSECS;
         $endtime = $data['endhour'] * HOURSECS + $data['endminute'] * MINSECS;
@@ -324,6 +353,40 @@ class mod_googlemeet_mod_form extends moodleform_mod {
         }
 
         return $errors;
+    }
+
+    /** Add the percentage-of-classes custom completion rule. */
+    public function add_completion_rules() {
+        $suffix = $this->get_suffix();
+        $mform = $this->_form;
+        $enabled = 'completionattendanceenabled' . $suffix;
+        $field = 'completionattendance' . $suffix;
+        $group = 'completionattendancegroup' . $suffix;
+        $elements = [$mform->createElement('checkbox', $enabled, '', get_string('completionattendance', 'googlemeet')),
+            $mform->createElement('select', $field, '', array_combine(range(1, 100), range(1, 100)))];
+        $mform->addGroup($elements, $group, '', ' ', false);
+        $mform->setDefault($field, 80);
+        $mform->hideIf($field, $enabled, 'notchecked');
+        return [$group];
+    }
+
+    /** Whether the submitted custom rule is enabled. */
+    public function completion_rule_enabled($data) {
+        $suffix = $this->get_suffix();
+        return !empty($data['completionattendanceenabled' . $suffix]) &&
+            !empty($data['completionattendance' . $suffix]);
+    }
+
+    /** Persist zero when this completion rule is disabled, including bulk editing. */
+    public function data_postprocessing($data) {
+        parent::data_postprocessing($data);
+        if (!empty($data->completionunlocked)) {
+            $suffix = $this->get_suffix();
+            if (empty($data->{'completionattendanceenabled' . $suffix}) ||
+                    ($data->{'completion' . $suffix} ?? 0) != COMPLETION_TRACKING_AUTOMATIC) {
+                $data->{'completionattendance' . $suffix} = 0;
+            }
+        }
     }
 
     /**

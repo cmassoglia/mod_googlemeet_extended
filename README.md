@@ -1,4 +1,49 @@
-# Google Meet™ for Moodle #
+# Google Meet™ Extended for Moodle
+
+This maintained fork adds post-class attendance and statistics while preserving the `mod_googlemeet` component,
+existing Calendar rooms, recordings and reminders. Upgrade existing installations in `mod/googlemeet`;
+do not install it alongside another copy of the same component.
+
+## Attendance
+
+Enable attendance per activity, then use **Attendance → Connect organizer** to grant the organizer read-only Meet access.
+Enable Google Meet API in the OAuth project's Google Cloud console. Keep the standard Moodle Google OAuth callback URL.
+The issuer must expose OpenID Connect UserInfo with `sub`; organizer authorization uses
+`openid email profile https://www.googleapis.com/auth/meetings.space.readonly`.
+Students use **Link my Google account** with identity-only scopes (`openid email profile`), independently of their Moodle login.
+Email addresses and display names are never used to automatically match learners.
+
+Moodle cron must run normally. A five-minute dispatcher snapshots enrolled learners when a class starts and queues
+imports as the connected organizer. No organizer browser session needs to stay open. Revoked/insufficient permissions
+require reconnecting. Google expires conference records 30 days after they end; Moodle keeps successfully imported evidence.
+An outage during a later refresh does not invalidate that evidence. A cron delayed past enrollment changes can only use
+the historical enrollment timestamps Moodle still has; it cannot reconstruct an unrecorded history of role changes.
+
+Defaults are 75% effective presence within the Moodle timetable, 80% of eligible classes to complete the activity,
+and an informational late flag after ten minutes. Thresholds are editable per activity. Overlapping devices count once;
+disconnect gaps do not count. Completion waits until the series ends and its pending records are reviewed.
+Missing Google records or unresolved identities remain pending, rather than becoming confirmed absences.
+
+Teachers can classify external participants, map pending attendees to roster learners and cancel classes with an audited reason.
+Reports by class, learner and course include intervals, totals, percentages, connection sessions, concurrency and CSV export.
+Learners can only access their own results. Imported timestamps cannot be edited. Started class windows and Google source
+are protected: use another activity when changing the room or organizing Google account after a series starts.
+
+Attendance is disabled on upgrade and starts prospectively when enabled; there is no automatic backfill before activation.
+There is no age-based purge. Privacy requests, an explicitly selected course reset, or activity deletion remove the corresponding
+personal records; minimal hashed suppression markers prevent Google from reimporting erased participant details.
+User-data backups preserve attendance with Moodle user remapping; backups never contain OAuth credentials or global account links.
+Restores require explicitly reconnecting and re-enabling synchronization.
+
+The attendance importer does not change recording-sharing permissions. The inherited Drive recording synchronization
+can make recordings readable by anyone with their link; review that separate existing behavior before using it.
+
+## Validation
+
+Run the Moodle PHPUnit suite `mod_googlemeet_testsuite` after initializing the isolated test database.
+Tests use mocked Google responses: no production mock switch or credentials are included.
+The compatibility workflow covers stable Moodle 4.5, 5.0, 5.1, 5.2 and 5.3 using supported PHP versions.
+A real Google Workspace class remains a separate acceptance check; simulated tests do not establish live attendance capture.
 
 The Google Meet™ for Moodle plugin allows the teacher, without having to leave Moodle, to create a Google Meet room and make available to the students the recordings of the room saved in Google Drive.
 
@@ -15,9 +60,9 @@ To learn how to set up an OAuth 2 service for Google, click [here](https://githu
 </div>
 
 ## Requirements
-Moodle 3.7+
+Moodle 4.5+
 
-PHP 7.0+
+PHP 8.1+ for Moodle 4.5; use the PHP version required by each later Moodle release.
 
 ## Installation
 1.  Copy this plugin to the `mod\googlemeet` folder on the server
@@ -25,7 +70,7 @@ PHP 7.0+
 3.  Go to Site Administrator > Notification
 4.  Install the plugin
 
-This module is intended for Moodle 3.7 and above.
+For Moodle 5.1+, install under the public document root's `mod/googlemeet` directory.
 
 ## Security
 

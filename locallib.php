@@ -181,13 +181,39 @@ function googlemeet_delete_events($googlemeetid) {
 function googlemeet_set_events($googlemeet, $events) {
     global $DB;
 
-    googlemeet_delete_events($events[0]->googlemeetid);
-
-    $DB->insert_records('googlemeet_events', $events);
-
+    $transaction = $DB->start_delegated_transaction();
+    $existing = $DB->get_records('googlemeet_events', ['googlemeetid' => $googlemeet->id]);
+    $bydate = [];
+    foreach ($existing as $event) {
+        $bydate[$event->eventdate] = $event;
+    }
+    $retained = [];
     foreach ($events as $event) {
+        $previous = $bydate[$event->eventdate] ?? null;
+        if ($previous) {
+            $retained[$previous->id] = true;
+            // Once a class starts its original window and history are immutable.
+            if ($previous->eventdate > time() && empty($previous->snapshotat)) {
+                $event->id = $previous->id;
+                $DB->update_record('googlemeet_events', $event);
+            }
+        } else if (!$existing || $event->eventdate > time()) {
+            $retained[$DB->insert_record('googlemeet_events', $event)] = true;
+        }
+    }
+    foreach ($existing as $event) {
+        if (!isset($retained[$event->id]) && $event->eventdate > time() && empty($event->snapshotat)) {
+            $DB->delete_records('googlemeet_notify_done', ['eventid' => $event->id]);
+            $DB->delete_records('googlemeet_events', ['id' => $event->id]);
+        }
+    }
+    // Rebuild calendar presentation only, never the underlying attendance occurrences.
+    $DB->delete_records('event', ['modulename' => 'googlemeet', 'instance' => $googlemeet->id,
+        'eventtype' => helper::GOOGLEMEET_EVENT_START]);
+    foreach ($DB->get_records('googlemeet_events', ['googlemeetid' => $googlemeet->id]) as $event) {
         helper::create_calendar_event($googlemeet, $event);
     }
+    $transaction->allow_commit();
 }
 
 /**
